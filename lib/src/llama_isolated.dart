@@ -1,51 +1,27 @@
 part of 'package:lcpp/lcpp.dart';
 
-typedef _IsolateArguments = ({
-  ModelParams modelParams,
-  ContextParams contextParams,
-  SamplingParams samplingParams,
-  SendPort sendPort
-});
-
-extension _IsolateArgumentsExtension on _IsolateArguments {
-  _SerializableIsolateArguments get toSerializable => (
-        modelParams.toJson(),
-        contextParams.toJson(),
-        samplingParams.toJson(),
-        sendPort
-      );
-}
-
-typedef _SerializableIsolateArguments = (String, String, String, SendPort);
-
-extension _SerializableIsolateArgumentsExtension
-    on _SerializableIsolateArguments {
-  ModelParams get modelParams => ModelParams.fromJson(this.$1);
-
-  ContextParams get contextParams => ContextParams.fromJson(this.$2);
-
-  SamplingParams get samplingParams => SamplingParams.fromJson(this.$3);
-
-  SendPort get sendPort => this.$4;
-}
-
-void _isolateEntry(_SerializableIsolateArguments args) async {
-  final SendPort sendPort = args.sendPort;
-  final LlamaNative llamaCppNative;
+void _isolateEntry(SendPort sendPort) async {
+  LlamaNative? llamaNative;
 
   try {
     final receivePort = ReceivePort();
     sendPort.send(receivePort.sendPort);
 
-    llamaCppNative = LlamaNative(
-        modelParams: args.modelParams,
-        contextParams: args.contextParams,
-        samplingParams: args.samplingParams);
-
     await for (final data in receivePort) {
-      if (data is List<_ChatMessageRecord>) {
+      if (data is String) {
+        final args = _LlamaIsolateParams.fromJson(data);
+        llamaNative = LlamaNative(
+          modelParams: args.modelParams,
+          contextParams: args.contextParams,
+          samplingParams: args.samplingParams
+        );
+        sendPort.send(true);
+      }
+      else if (data is List<_ChatMessageRecord>) {
+        assert(llamaNative != null, LlamaException('LlamaNative is not initialized'));
+
         final messages = ChatMessages._fromRecords(data);
-        final stream = llamaCppNative.prompt(messages);
+        final stream = llamaNative!.prompt(messages);
 
         await for (final response in stream) {
           sendPort.send(response);
@@ -154,18 +130,19 @@ class LlamaIsolated implements Llama {
   void _listener() async {
     _receivePort = ReceivePort();
 
-    final isolateParams = (
+    final isolateParams = _LlamaIsolateParams(
       modelParams: _modelParams,
       contextParams: _contextParams,
       samplingParams: _samplingParams,
-      sendPort: _receivePort!.sendPort
     );
 
-    _isolate = await Isolate.spawn(_isolateEntry, isolateParams.toSerializable);
+    _isolate = await Isolate.spawn(_isolateEntry, _receivePort!.sendPort);
 
     await for (final data in _receivePort!) {
       if (data is SendPort) {
         _sendPort = data;
+        _sendPort!.send(isolateParams.toJson());
+      } else if (data is bool) {
         _initialized.complete();
       } else if (data is String) {
         _responseController.add(data);
