@@ -196,6 +196,11 @@ class LlamaIsolated implements Llama {
   }
 
   @override
+  Uint8List tts(String text) {
+    throw UnimplementedError();
+  }
+
+  @override
   void stop() {
     _isolate?.kill(priority: Isolate.immediate);
     _receivePort?.close();
