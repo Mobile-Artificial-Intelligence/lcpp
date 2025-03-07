@@ -68,6 +68,8 @@ class LlamaTTS with _LlamaTTSMixin implements _LlamaBase {
     _ttcContext = _LlamaBase.lib.llama_init_from_model(_ttcModel, nativeContextParams);
     assert(_ttcContext != ffi.nullptr, LlamaException('Failed to initialize TTC context'));
 
+    nativeContextParams.embeddings = true;  
+
     _ctsContext = _LlamaBase.lib.llama_init_from_model(_ctsModel, nativeContextParams);
     assert(_ctsContext != ffi.nullptr, LlamaException('Failed to initialize CTS context'));
 
@@ -217,9 +219,11 @@ class LlamaTTS with _LlamaTTSMixin implements _LlamaBase {
 
     batch = _LlamaBase.lib.llama_batch_init(codes.length, 0, 1);
 
-    for (int i = 0; i < codes.length; i++) {
+    for (int i = 0; i < codes.length; ++i) {
       _batchAdd(batch, codes[i], i, [0], true);
     }
+
+    assert(batch.n_tokens == codes.length, LlamaException('Failed to initialize batch'));
 
     assert(_LlamaBase.lib.llama_decode(_ctsContext, batch) == 0, LlamaException('Failed to decode'));
 
@@ -506,8 +510,9 @@ enum _OuteTtsVersion {
   v3;
 
   static _OuteTtsVersion getVersion(ffi.Pointer<llama_model> model) {
-    final version = _LlamaBase.lib.llama_model_chat_template(model, ffi.nullptr).cast<Utf8>().toDartString();
-    if (version.contains('0.3')) {
+    final version = _LlamaBase.lib.llama_model_chat_template(model, ffi.nullptr);
+
+    if (version != ffi.nullptr && version.cast<Utf8>().toDartString().contains('0.3')) {
       return _OuteTtsVersion.v3;
     }
 

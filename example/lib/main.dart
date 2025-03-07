@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -867,31 +868,12 @@ const String enMale1 = '''
 class LlamaAppState extends State<LlamaApp> {
   final TextEditingController controller = TextEditingController();
   final List<ChatMessage> messages = [];
-  Llama? model;
+  LlamaTTS? model;
   String? modelPath;
   bool busy = false;
 
   void loadModel() async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
-        dialogTitle: "Load Chat Model File",
-        type: FileType.any,
-        allowMultiple: false,
-        allowCompression: false);
-
-    if (result == null ||
-        result.files.isEmpty ||
-        result.files.single.path == null) {
-      throw Exception('No file selected');
-    }
-
-    final chatModel = File(result.files.single.path!);
-
-    final chatModelExists = await chatModel.exists();
-    if (!chatModelExists) {
-      throw Exception('File does not exist');
-    }
-
-    result = await FilePicker.platform.pickFiles(
         dialogTitle: "Load TTC Model File",
         type: FileType.any,
         allowMultiple: false,
@@ -929,52 +911,31 @@ class LlamaAppState extends State<LlamaApp> {
       throw Exception('File does not exist');
     }
 
-    final llamaCpp = Llama(
-      chatParams: LlamaChatParams(
-        chatModel: chatModel,
-        greedy: true,
-      ),
-      ttsParams: LlamaTtsParams(
-        ttcModel: ttcModel,
-        ctsModel: ctsModel,
-        voice: VoiceData.fromJson(enMale1),
-      )
-    );
+    final llamaCpp = LlamaTTS(LlamaTtsParams(
+      ttcModel: ttcModel,
+      ctsModel: ctsModel,
+      voice: VoiceData.fromJson(enMale1),
+      greedy: true,
+      nCtx: 8192,
+      nBatch: 8192,
+      nPredict: 4096,
+    ));
 
     setState(() {
       model = llamaCpp;
-      modelPath = 'ChatModel: $chatModelExists, TtcModel: $ttcModelExists, CtsModel: $ctsModelExists';
+      modelPath = 'TtcModel: $ttcModelExists, CtsModel: $ctsModelExists';
     });
   }
 
   void onSubmitted(String value) async {
-    if (model == null) {
-      return;
-    }
+    setState(() => busy = true);
 
-    setState(() {
-      busy = true;
-      messages.add(UserChatMessage(value));
-      controller.clear();
-    });
-
-    final stream = model!.prompt(messages.copy());
-
-    messages.add(AssistantChatMessage(''));
-
-    await for (var response in stream) {
-      setState(() {
-        messages.last.content += response;
-      });
-    }
-
-    final wavBytes = await model!.tts(messages.last.content);
+    final wavBytes = await model!.tts(value);
 
     setState(() => busy = false);
   }
 
   void onStop() {
-    model?.stop();
     setState(() => busy = false);
   }
 
